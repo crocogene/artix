@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-. $(dirname "$0")/btrfs_opt.sh
+. $(dirname "$0")/opts.sh
 
-mkfs.vfat -n ESP -F 32 /dev/nvme0n1p1 
-mkfs.btrfs /dev/nvme0n1p2 -L tank --force
-mount -o $OPT /dev/disk/by-label/tank /mnt
+mkfs.vfat -n $esp_label -F 32 $esp_part
+mkfs.btrfs $tank_part -L $tank_label --force
+mount -o $btrfs_opt /dev/disk/by-label/$tank_label /mnt
 cd /mnt
 btrfs subvol create {@,@home,@cache,@swap,@shapshots}  
 cd ..
