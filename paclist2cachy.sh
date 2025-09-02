@@ -55,7 +55,7 @@ for pkg in "${installed_pkgs[@]}"; do
         done
 
         # Print package and missing dependencies
-        if [[ ${#missing_deps[@]} -gt 0 ]]; then
+        if (( ${#missing_deps[@]} )); then
             printf "%-30s needed:%s\n" "$pkg" "$(IFS=,; echo "${missing_deps[*]}")"
         fi
     fi
