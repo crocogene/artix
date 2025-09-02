@@ -9,3 +9,4 @@ cd /mnt
 btrfs subvol create {@,@home,@cache,@swap,@snapshots}  
 cd ..
 umount /mnt
+. $(dirname "$0")/mountfs.sh
