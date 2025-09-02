@@ -20,11 +20,13 @@ prepare() {
 }
 
 package() {
+    mkdir -p "$pkgdir/usr/bin"
     ln -s /usr/bin/pigz "$pkgdir/usr/bin/gzip"
-    ln -s /usr/bin/unpigz "$pkgdir/usr/bin/gunzip"
+    ln -s /usr/bin/pigz "$pkgdir/usr/bin/gunzip"
+    ln -s /usr/bin/pigz "$pkgdir/usr/bin/uncompress"
     cd "$srcdir/scripts"
     for script in z*.in; do
         script_name="${script%.in}"  
-        install -Dm755 "$script" "$pkgdir/usr/local/bin/$script_name" 
+        install -Dm755 "$script" "$pkgdir/usr/bin/$script_name" 
     done    
 }
