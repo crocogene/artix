@@ -31,14 +31,9 @@ mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$arch" '$1=="Name"{n=$3}
 for pkg in "${installed_pkgs[@]}"; do
     # Check if the package exists in the specified repository
     if pacman -Sl "$repo" | grep -q " $pkg "; then
-        # Get dependencies of the package
-        deps=$(pacman -Si "$repo/$pkg" | awk -F': ' '/^Depends On/{print $2}')
+        # Get dependencies and clean out <none> / None
+        deps=$(pacman -Si "$repo/$pkg" | awk -F': ' '/^Depends On/{print $2}' | sed 's/^<none>$//;s/^None$//')
 
-        # Skip if no dependencies
-        if [[ -z "$deps" || "$deps" == "<none>" || "$deps" == "None" ]]; then
-            continue
-        fi
-        
         missing_deps=()
         for dep in $deps; do
             dep=${dep%,*}   # remove trailing commas
@@ -54,9 +49,13 @@ for pkg in "${installed_pkgs[@]}"; do
             fi
         done
 
-        # Print package and missing dependencies
+        # Build needed string
         if (( ${#missing_deps[@]} )); then
-            printf "%-30s needed:%s\n" "$pkg" "$(IFS=,; echo "${missing_deps[*]}")"
+            needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
+        else
+            needed=""
         fi
+
+        printf "%-30s %s\n" "$pkg" "$needed"
     fi
 done
