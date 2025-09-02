@@ -1,68 +1,65 @@
 #!/usr/bin/env bash
 
-# Скрипт: проверить зависимости установленных пакетов, доступных в указанном репозитории
-# Использование: ./paclist2cachy.sh <имя_репозитория>
-# Пример: ./paclist2cachy.sh cachyos-znver4f
+# Script: Check dependencies of installed packages available in a given repository
+# Usage: ./paclist2cachy.sh <repository_name>
+# Example: ./paclist2cachy.sh cachyos-znver4
 
 repo="$1"
 
-# --- Проверка параметра ---
+# --- Validate input parameter ---
 if [[ -z "$repo" ]]; then
-    echo "Ошибка: не указано имя репозитория."
-    echo "Использование: $0 <имя_репозитория>"
+    echo "Error: repository name not specified."
+    echo "Usage: $0 <repository_name>"
     exit 1
 fi
 
-# --- Проверка наличия репозитория через pacman-conf ---
+# --- Check if repository exists using pacman-conf ---
 if ! pacman-conf -r "$repo" &>/dev/null; then
-    echo "Ошибка: репозиторий '$repo' не найден в конфигурации pacman."
-    echo "Доступные репозитории:"
+    echo "Error: repository '$repo' not found in pacman configuration."
+    echo "Available repositories:"
     pacman-conf --repo-list
     exit 1
 fi
 
-# --- Определяем архитектуру системы ---
+# --- Get system architecture ---
 arch=$(uname -m)
 
-# --- Шаг 1: Кэшируем список пакетов из указанного репозитория ---
-echo "Загружаю список пакетов из репозитория '$repo'..."
+# --- Step 1: Cache package list from the specified repository ---
+echo "Fetching package list from repository '$repo'..."
 mapfile -t repo_pkgs < <(pacman -Sl "$repo" | awk '{print $2}')
 
-# --- Шаг 2: Собираем список установленных пакетов текущей архитектуры ---
-mapfile -t installed_pkgs < <(pacman -Qi | awk -F': ' -v arch="$arch" '
-    /^Name/ {name=$2}
-    /^Architecture/ {if($2==arch) print name}
-')
+# --- Step 2: Get a list of installed packages for the current architecture ---
+mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$arch" '$1=="Name"{n=$3} ($1=="Architecture" && $3==arch){print n}')
 
-# --- Шаг 3: Проверяем каждый установленный пакет ---
+# --- Step 3: Process each installed package ---
 for pkg in "${installed_pkgs[@]}"; do
-    # Проверяем, есть ли пакет в указанном репозитории
+    # Check if the package exists in the repository
     if printf '%s\n' "${repo_pkgs[@]}" | grep -qx "$pkg"; then
-        # Получаем список зависимостей пакета из репозитория
-        deps=$(pacman -Si "$repo"/"$pkg" | awk -F': ' '/^Depends On/{print $2}')
+        # Get the package dependencies from the repository
+        deps=$(pacman -Si "$repo/$pkg" | awk -F': ' '/^Depends On/{print $2}')
 
-        # Пропускаем, если зависимостей нет
+        # Skip if there are no dependencies
         if [[ -z "$deps" || "$deps" == "<none>" ]]; then
             continue
         fi
 
-        # --- Шаг 4: Проверяем каждую зависимость ---
+        # --- Step 4: Check each dependency ---
         missing_deps=()
         for dep in $deps; do
-            dep=${dep%,*}   # убираем запятые
-            dep=${dep%%=*}  # убираем версии =1.2.3
-            dep=${dep%%<*}  # убираем версии <1.2.3
-            dep=${dep%%>*}  # убираем версии >1.2.3
+            dep=${dep%,*}   # remove trailing commas
+            dep=${dep%%=*}  # remove version constraints =1.2.3
+            dep=${dep%%<*}  # remove version constraints <1.2.3
+            dep=${dep%%>*}  # remove version constraints >1.2.3
 
             [[ -z "$dep" ]] && continue
 
-            # Если зависимость не установлена, добавляем
+            # Add dependency to list if it's not installed
             if ! pacman -Qq "$dep" &>/dev/null; then
                 missing_deps+=("$dep")
             fi
         done
 
-        # --- Шаг 5: Выводим пакет и список недостающих зависимостей ---
+        # --- Step 5: Print package and missing dependencies ---
         if [[ ${#missing_deps[@]} -gt 0 ]]; then
             printf "%-30s needed:%s\n" "$pkg" "$(IFS=,; echo "${missing_deps[*]}")"
         fi
