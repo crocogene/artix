@@ -16,7 +16,7 @@ sha512sums=('SKIP')
 prepare() {
     cd "$srcdir"
     mkdir -p scripts
-    tar --wildcards -xJf "gzip-1.14.tar.xz" -C scripts 'z*.in'
+    tar -xJf "gzip-1.14.tar.xz" --strip-components=1 -C scripts $(tar -tf "gzip-1.14.tar.xz" | grep -E '(^|/)z.*\.in$')
 }
 
 package() {
