@@ -34,11 +34,11 @@ for pkg in "${installed_pkgs[@]}"; do
         # Get dependencies of the package
         deps=$(pacman -Si "$repo/$pkg" | awk -F': ' '/^Depends On/{print $2}')
 
-        # Skip if there are no dependencies
-        if [[ -z "$deps" || "$deps" == "<none>" ]]; then
+        # Skip if no dependencies
+        if [[ -z "$deps" || "$deps" == "<none>" || "$deps" == "None" ]]; then
             continue
         fi
-
+        
         missing_deps=()
         for dep in $deps; do
             dep=${dep%,*}   # remove trailing commas
