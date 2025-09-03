@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # Script: Check missing dependencies (with version check) for installed packages
 #         available in repos that support a given target architecture.
 
@@ -127,7 +126,17 @@ scan_target_repo() {
         done
 
         if (( ${#missing_deps[@]} )); then
-            needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
+            needed_list=()
+            for dep in "${missing_deps[@]}"; do
+                dep_pkg_name="${dep%%[<>=]*}"
+                installed_ver=$(pacman -Q "$dep_pkg_name" 2>/dev/null | awk '{print $2}')
+                if [[ -n "$installed_ver" && "$dep" =~ [0-9] ]]; then
+                    needed_list+=("${dep}(${installed_ver})")
+                else
+                    needed_list+=("$dep")
+                fi
+            done
+            needed="needed:$(IFS=,; echo "${needed_list[*]}")"
         else
             needed=""
         fi
@@ -137,12 +146,12 @@ scan_target_repo() {
             continue
         fi
 
-        output+=$(printf "%-30s %s\n" "$pkg" "$needed")
+        output+=$(printf "%-30s %s" "$pkg" "$needed"; echo)
     done
 
     if [[ -n "$output" ]]; then
         echo "=== Repository: $repo (target arch: $target_arch) ==="
-        echo "$output"
+        echo -e "$output"
     fi
 }
 
