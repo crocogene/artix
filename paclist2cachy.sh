@@ -2,15 +2,52 @@
 
 # Script: Check missing dependencies (with version check) for installed packages
 #         available in repos that support a given target architecture.
-# Usage:  ./paclist2cachy.sh <target_architecture>
-# Example: ./paclist2cachy.sh x86_64_v4
 
-target_arch="$1"
+show_help() {
+    cat <<EOF
+Usage: $0 [OPTIONS] <target_architecture>
+
+Check installed packages against repositories for a target architecture
+and list missing dependencies.
+
+Options:
+  -n, --needed_only   Show only packages with missing dependencies.
+  -h, --help          Show this help message.
+
+Examples:
+  $0 x86_64_v4
+  $0 x86_64_v4 --needed_only
+EOF
+}
+
+# --- Parse arguments ---
+needed_only=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -n|--needed_only)
+            needed_only=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -*)
+            echo "Error: unknown option '$1'" >&2
+            show_help
+            exit 1
+            ;;
+        *)
+            target_arch="$1"
+            shift
+            ;;
+    esac
+done
 
 # --- Validate parameter ---
 if [[ -z "$target_arch" ]]; then
     echo "Error: target architecture not specified."
-    echo "Usage: $0 <target_architecture>"
+    show_help
     exit 1
 fi
 
@@ -55,19 +92,15 @@ compare_versions() {
 scan_target_repo() {
     local repo="$1"
 
-    # Cache package list for this repo (includes all arch)
     local repo_pkgs
     repo_pkgs=$(pacman -Sl "$repo" 2>/dev/null)
     [[ -z "$repo_pkgs" ]] && return 0
 
-    echo "=== Repository: $repo (target arch: $target_arch) ==="
-
+    local output=""
     for pkg in "${installed_pkgs[@]}"; do
         grep -q " $pkg " <<<"$repo_pkgs" || continue
 
         pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
-
-        # Filter by architecture: only target_arch or 'any'
         pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$pkg_info")
         [[ "$pkg_arch" == "$target_arch" || "$pkg_arch" == "any" ]] || continue
 
@@ -98,8 +131,19 @@ scan_target_repo() {
         else
             needed=""
         fi
-        printf "%-30s %s\n" "$pkg" "$needed"
+
+        # Skip output if needed_only is true and there are no missing deps
+        if $needed_only && [[ -z "$needed" ]]; then
+            continue
+        fi
+
+        output+=$(printf "%-30s %s\n" "$pkg" "$needed")
     done
+
+    if [[ -n "$output" ]]; then
+        echo "=== Repository: $repo (target arch: $target_arch) ==="
+        echo "$output"
+    fi
 }
 
 # --- Iterate through all repos ---
