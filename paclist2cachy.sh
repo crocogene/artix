@@ -4,7 +4,7 @@
 
 print_help() {
     cat <<EOF
-Usage: $0 <target_arch> [-n|--needed_only]
+Usage: $0 <target_arch> [options]
 
 Options:
   -n, --needed_only    Show only packages with missing or mismatched dependencies
