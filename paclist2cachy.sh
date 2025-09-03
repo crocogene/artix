@@ -72,7 +72,7 @@ scan_target_repo() {
         # Get target repo package info once; skip if not found
         target_pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
         target_pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$target_pkg_info")
-        [[ "$target_pkg_arch" == "$target_arch" || "$target_pkg_arch" == "any" ]] || continue
+        [[ "$target_pkg_arch" == "$target_arch" ]] || continue
 
         # Extract Depends On
         deps=$(awk -F': *' '/^Depends On/{print $2}' <<<"$target_pkg_info" | sed 's/<none>//g; s/None//g')
