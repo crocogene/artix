@@ -1,61 +1,118 @@
 #!/usr/bin/env bash
 
-# Script: Check dependencies of installed packages available in a given repository
-# Usage: ./paclist2cachy.sh <repository_name>
-# Example: ./paclist2cachy.sh cachyos-znver4
+# Script: Check missing dependencies (with version check) for installed packages
+#         available in repos that support a given target architecture.
+# Usage:  ./paclist2cachy.sh <target_architecture>
+# Example: ./paclist2cachy.sh x86_64_v4
 
-repo="$1"
+target_arch="$1"
 
-# --- Validate input parameter ---
-if [[ -z "$repo" ]]; then
-    echo "Error: repository name not specified."
-    echo "Usage: $0 <repository_name>"
+# --- Validate parameter ---
+if [[ -z "$target_arch" ]]; then
+    echo "Error: target architecture not specified."
+    echo "Usage: $0 <target_architecture>"
     exit 1
 fi
 
-# --- Check if repository exists using pacman-conf ---
-if ! pacman-conf -r "$repo" &>/dev/null; then
-    echo "Error: repository '$repo' not found in pacman configuration."
-    echo "Available repositories:"
-    pacman-conf --repo-list
+current_arch=$(uname -m)
+
+# 1) Target arch must differ from uname -m
+if [[ "$target_arch" == "$current_arch" ]]; then
+    echo "Error: target architecture ($target_arch) must differ from current architecture ($current_arch)."
     exit 1
 fi
 
-# --- Get system architecture ---
-arch=$(uname -m)
+# 2) Target arch must be present in pacman.conf Architecture OR it must be 'auto'
+arch_list=$(pacman-conf Architecture | tr -d '&' | xargs)
+if ! grep -qwE "$target_arch|auto" <<<"$arch_list"; then
+    echo "Error: target architecture '$target_arch' is not listed in pacman configuration."
+    echo "Available architectures: $arch_list"
+    exit 1
+fi
 
-# --- Get list of installed packages for the current architecture ---
-mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$arch" '$1=="Name"{n=$3} ($1=="Architecture" && $3==arch){print n}')
+# --- Get installed packages for the CURRENT architecture ---
+mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$current_arch" '
+    $1=="Name"        { n=$3 }
+    $1=="Architecture" && $3==arch { print n }
+')
 
-# --- Check each installed package ---
-for pkg in "${installed_pkgs[@]}"; do
-    # Check if the package exists in the specified repository
-    if pacman -Sl "$repo" | grep -q " $pkg "; then
-        # Get dependencies and clean out <none> / None
-        deps=$(pacman -Si "$repo/$pkg" | awk -F': ' '/^Depends On/{print $2}' | sed 's/^<none>$//;s/^None$//')
+# --- Version compare via vercmp ---
+compare_versions() {
+    local ver1="$1" op="$2" ver2="$3"
+    local res
+    res=$(vercmp "$ver1" "$ver2")
+    case "$op" in
+        "=")  [[ $res -eq 0 ]] ;;
+        ">")  [[ $res -gt 0 ]] ;;
+        "<")  [[ $res -lt 0 ]] ;;
+        ">=") [[ $res -ge 0 ]] ;;
+        "<=") [[ $res -le 0 ]] ;;
+        *)    return 1 ;;
+    esac
+}
 
-        missing_deps=()
-        for dep in $deps; do
-            dep=${dep%,*}   # remove trailing commas
-            dep=${dep%%=*}  # remove version constraints =1.2.3
-            dep=${dep%%<*}  # remove version constraints <1.2.3
-            dep=${dep%%>*}  # remove version constraints >1.2.3
+# --- Temporary pacman config to force target Architecture ---
+sys_conf="/etc/pacman.conf"
+tmp_conf="$(mktemp)"
+trap 'rm -f "$tmp_conf"' EXIT
 
-            [[ -z "$dep" ]] && continue
+{
+    echo "Include = $sys_conf"
+    echo "[options]"
+    echo "Architecture = $target_arch"
+} >"$tmp_conf"
 
-            # Add to list if not installed
-            if ! pacman -Qq "$dep" &>/dev/null; then
-                missing_deps+=("$dep")
+# --- Function: scan a single repository for packages and dependencies ---
+scan_target_repo() {
+    local repo="$1"
+
+    # Get package list for this repo+arch once
+    local repo_pkgs
+    repo_pkgs=$(pacman --config "$tmp_conf" -Sl "$repo" 2>/dev/null)
+    [[ -z "$repo_pkgs" ]] && return 0
+
+    echo "=== Repository: $repo (target arch: $target_arch) ==="
+
+    for pkg in "${installed_pkgs[@]}"; do
+        if grep -q " $pkg " <<<"$repo_pkgs"; then
+            deps=$(pacman --config "$tmp_conf" -Si "$repo/$pkg" \
+                   | awk -F': ' '/^Depends On/{print $2}' \
+                   | sed 's/^<none>$//;s/^None$//')
+
+            missing_deps=()
+            for dep in $deps; do
+                [[ -z "$dep" ]] && continue
+
+                dep_pkg_name="${dep%%[<>=]*}"
+                installed_ver=$(pacman -Q "$dep_pkg_name" 2>/dev/null | awk '{print $2}')
+
+                if [[ -z "$installed_ver" ]]; then
+                    missing_deps+=("$dep")
+                    continue
+                fi
+
+                if [[ "$dep" =~ (>=|<=|=|>|<)(.+) ]]; then
+                    op="${BASH_REMATCH[1]}"
+                    req_ver="${BASH_REMATCH[2]}"
+                    if ! compare_versions "$installed_ver" "$op" "$req_ver"; then
+                        missing_deps+=("$dep")
+                    fi
+                fi
+            done
+
+            if (( ${#missing_deps[@]} )); then
+                needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
+            else
+                needed=""
             fi
-        done
 
-        # Build needed string
-        if (( ${#missing_deps[@]} )); then
-            needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
-        else
-            needed=""
+            printf "%-30s %s\n" "$pkg" "$needed"
         fi
+    done
+}
 
-        printf "%-30s %s\n" "$pkg" "$needed"
-    fi
+# --- Iterate through all repos and scan each ---
+mapfile -t repos < <(pacman-conf --repo-list)
+for repo in "${repos[@]}"; do
+    scan_target_repo "$repo"
 done
