@@ -109,9 +109,10 @@ scan_target_repo() {
             needed_out=""
         fi
 
-        if ! $needed_only || [[ -n "$needed_out" ]]; then
-            printf -v repo_out '%s%-30s %s\n' "$repo_out" "$pkg" "$needed_out"
-        fi
+        $needed_only && [[ -z "$needed_out" ]] && continue
+
+        printf -v repo_out '%s%-30s %s\n' "$repo_out" "$pkg" "$needed_out"
+
     done
 
     if [[ -n "$repo_out" ]]; then
