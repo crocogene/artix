@@ -2,12 +2,13 @@
 # Script: Check missing dependencies (with version check) for installed packages
 #         available in repos that support a given target architecture.
 
-show_help() {
+print_help() {
     cat <<EOF
-Usage: $0 <target_arch> [--needed_only]
+Usage: $0 <target_arch> [-n|--needed_only]
 
 Options:
-  --needed_only   Show only packages that have missing or mismatched dependencies
+  -n, --needed_only    Show only packages with missing or mismatched dependencies
+  -h, --help           Show this help message
 
 Examples:
   $0 x86_64_v4
@@ -15,11 +16,32 @@ Examples:
 EOF
 }
 
-[[ $# -lt 1 ]] && { show_help; exit 1; }
-
-target_arch="$1"
+# ============================
+# Parse arguments
+# ============================
 needed_only=false
-[[ "$2" == "--needed_only" ]] && needed_only=true
+target_arch=""
+
+for arg in "$@"; do
+    case "$arg" in
+        -n|--needed_only)
+            needed_only=true
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        *)
+            if [[ -z "$target_arch" ]]; then
+                target_arch="$arg"
+            else
+                echo "Error: unexpected argument '$arg'" >&2
+                print_help
+                exit 1
+            fi
+            ;;
+    esac
+done
 
 current_arch=$(uname -m)
 arch_list=$(pacman-conf Architecture | sed 's/&//')
