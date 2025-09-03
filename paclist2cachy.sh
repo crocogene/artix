@@ -34,61 +34,66 @@ if [[ "$target_arch" == "$current_arch" ]]; then
     exit 1
 fi
 
-# --- Get installed packages for the CURRENT architecture ---
-mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$current_arch" '
-    $1=="Name" { n=$3 }
-    $1=="Architecture" && $3==arch { print n }
-')
-
-# --- Version compare via vercmp ---
+# (kept for potential future use)
 compare_versions() {
     local v1="$1" op="$2" v2="$3"
     local res
     res=$(vercmp "$v1" "$v2")
     case "$op" in
-        "=")  [[ $res -eq 0 ]] ;;
-        ">")  [[ $res -gt 0 ]] ;;
-        "<")  [[ $res -lt 0 ]] ;;
-        ">=") [[ $res -ge 0 ]] ;;
-        "<=") [[ $res -le 0 ]] ;;
-        *)    return 1 ;;
+        '>')  [[ $res -gt 0 ]];;
+        '>=') [[ $res -ge 0 ]];;
+        '<')  [[ $res -lt 0 ]];;
+        '<=') [[ $res -le 0 ]];;
+        '='|'==') [[ $res -eq 0 ]];;
+        *)    return 1;;
     esac
 }
 
 scan_target_repo() {
     local repo="$1"
 
-    local repo_pkgs
-    repo_pkgs=$(pacman -Sl "$repo" 2>/dev/null)
+    # Get package names from the repo (no arch info here)
+    repo_pkgs=$(pacman -Sl "$repo" 2>/dev/null | awk '{print $2}')
     [[ -z "$repo_pkgs" ]] && return 0
 
-    local output=""
-    for pkg in "${installed_pkgs[@]}"; do
-        grep -q " $pkg " <<<"$repo_pkgs" || continue
+    repo_out=""
+    for pkg in $repo_pkgs; do
+        # Must be installed locally
+        pkg_info=$(pacman -Qi "$pkg" 2>/dev/null) || continue
 
-        pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
-        pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$pkg_info")
-        [[ "$pkg_arch" == "$target_arch" || "$pkg_arch" == "any" ]] || continue
+        # Get target repo package info once; check its Architecture matches target_arch (or 'any')
+        target_pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
+        target_pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$target_pkg_info")
+        [[ "$target_pkg_arch" == "$target_arch" || "$target_pkg_arch" == "any" ]] || continue
 
-        deps=$(awk -F': *' '/^Depends On/{print $2}' <<<"$pkg_info" | sed 's/^<none>$//;s/^None$//')
+        # Extract Depends On from the same Si output
+        deps=$(awk -F': *' '/^Depends On/{print $2}' <<<"$target_pkg_info" | sed 's/<none>//g; s/None//g')
 
         needed_list=()
         for dep in $deps; do
             [[ -z "$dep" ]] && continue
-            dep_pkg_name="${dep%%[<>=]*}"
-            installed_ver=$(pacman -Q "$dep_pkg_name" 2>/dev/null | awk '{print $2}')
+            dep_name="${dep%%[<>=]*}"
 
-            if [[ -z "$installed_ver" ]]; then
-                missing_deps+=("$dep")
+            # Info from target repo for dependency
+            target_dep_info=$(pacman -Si "$repo/$dep_name" 2>/dev/null) || continue
+            target_name=$(awk -F': *' '/^Name/{print $2}' <<<"$target_dep_info")
+            target_ver=$(awk -F': *' '/^Version/{print $2}' <<<"$target_dep_info")
+            [[ -z "$target_name" ]] && continue
+
+            # Info about installed dependency
+            dep_info=$(pacman -Qi "$dep_name" 2>/dev/null)
+            installed_name=$(awk -F': *' '/^Name/{print $2}' <<<"$dep_info")
+            installed_ver=$(awk -F': *' '/^Version/{print $2}' <<<"$dep_info")
+
+            if [[ -z "$installed_name" ]]; then
+                # Not installed at all
+                needed_list+=("$target_name $target_ver")
                 continue
             fi
 
-            if [[ "$dep" =~ (>=|<=|=|>|<)(.+) ]]; then
-                op="${BASH_REMATCH[1]}"
-                req_ver="${BASH_REMATCH[2]}"
-                if ! compare_versions "$installed_ver" "$op" "$req_ver"; then
-                    missing_deps+=("$dep")
-                fi
+            # If installed but version differs from target repo version
+            if [[ "$installed_ver" != "$target_ver" ]]; then
+                needed_list+=("$target_name $target_ver($installed_ver)")
             fi
         done
 
