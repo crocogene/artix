@@ -23,23 +23,10 @@ EOF
 needed_only=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -n|--needed_only)
-            needed_only=true
-            shift
-            ;;
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        -*)
-            echo "Error: unknown option '$1'" >&2
-            show_help
-            exit 1
-            ;;
-        *)
-            target_arch="$1"
-            shift
-            ;;
+        -n|--needed_only) needed_only=true; shift ;;
+        -h|--help) show_help; exit 0 ;;
+        -*) echo "Error: unknown option '$1'" >&2; show_help; exit 1 ;;
+        *)  target_arch="$1"; shift ;;
     esac
 done
 
@@ -68,7 +55,7 @@ fi
 
 # --- Get installed packages for the CURRENT architecture ---
 mapfile -t installed_pkgs < <(pacman -Qi | awk -v arch="$current_arch" '
-    $1=="Name"        { n=$3 }
+    $1=="Name" { n=$3 }
     $1=="Architecture" && $3==arch { print n }
 ')
 
@@ -141,21 +128,19 @@ scan_target_repo() {
             needed=""
         fi
 
-        # Skip output if needed_only is true and there are no missing deps
         if $needed_only && [[ -z "$needed" ]]; then
             continue
         fi
 
-        output+=$(printf "%-30s %s" "$pkg" "$needed"; echo)
+        printf -v output '%s%-30s %s\n' "$output" "$pkg" "$needed"
     done
 
     if [[ -n "$output" ]]; then
         echo "=== Repository: $repo (target arch: $target_arch) ==="
-        echo -e "$output"
+        printf '%s' "$output"
     fi
 }
 
-# --- Iterate through all repos ---
 mapfile -t repos < <(pacman-conf --repo-list)
 for repo in "${repos[@]}"; do
     scan_target_repo "$repo"
