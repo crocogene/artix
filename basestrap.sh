@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-basestrap -P /mnt \
+basestrap -KM /mnt \
     base seatd-dinit \
     cachyos-keyring cachyos-mirrorlist cachyos-v4-mirrorlist artix-archlinux-support \
     gzip-pigz-shim grep-ugrep-shim
