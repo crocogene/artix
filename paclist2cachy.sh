@@ -80,7 +80,7 @@ scan_target_repo() {
         needed_list=()
         for dep in $deps; do
             [[ -z "$dep" ]] && continue
-            dep_name="${dep%%[<>=]*}"
+            [[ "$dep" =~ ^([^<>=]+)([<>=]*)(.*)$ ]] && dep_name="${BASH_REMATCH[1]}" dep_op="${BASH_REMATCH[2]}" dep_version="${BASH_REMATCH[3]}"
 
             # Info from target repo for dependency
             target_dep_info=$(pacman -Si "$repo/$dep_name" 2>/dev/null) || continue
@@ -98,7 +98,7 @@ scan_target_repo() {
                 continue
             fi
 
-            if [[ "$installed_ver" != "$target_ver" ]]; then
+            if [[ -n "$dep_version" && "$installed_ver" != "$target_ver" ]]; then
                 needed_list+=("$target_name $target_ver($installed_ver)")
             fi
         done
