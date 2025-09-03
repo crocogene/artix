@@ -34,7 +34,21 @@ if [[ "$target_arch" == "$current_arch" ]]; then
     exit 1
 fi
 
-# (kept for potential future use)
+# Build list of installed packages filtered by current_arch
+mapfile -t installed_pkgs < <(
+    pacman -Qi |
+    awk -v arch="$current_arch" '
+        /^Name/ {name=$3}
+        /^Architecture/ {if ($3==arch || $3=="any") print name}
+    '
+)
+
+if [[ ${#installed_pkgs[@]} -eq 0 ]]; then
+    echo "Error: No installed packages match current architecture '$current_arch'."
+    exit 1
+fi
+
+# Function for version comparison (kept for future use)
 compare_versions() {
     local v1="$1" op="$2" v2="$3"
     local res
@@ -51,22 +65,16 @@ compare_versions() {
 
 scan_target_repo() {
     local repo="$1"
-
-    # Get package names from the repo (no arch info here)
-    repo_pkgs=$(pacman -Sl "$repo" 2>/dev/null | awk '{print $2}')
-    [[ -z "$repo_pkgs" ]] && return 0
-
     repo_out=""
-    for pkg in $repo_pkgs; do
-        # Must be installed locally
-        pkg_info=$(pacman -Qi "$pkg" 2>/dev/null) || continue
 
-        # Get target repo package info once; check its Architecture matches target_arch (or 'any')
+    # Loop over installed packages
+    for pkg in "${installed_pkgs[@]}"; do
+        # Get target repo package info once; skip if not found
         target_pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
         target_pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$target_pkg_info")
         [[ "$target_pkg_arch" == "$target_arch" || "$target_pkg_arch" == "any" ]] || continue
 
-        # Extract Depends On from the same Si output
+        # Extract Depends On
         deps=$(awk -F': *' '/^Depends On/{print $2}' <<<"$target_pkg_info" | sed 's/<none>//g; s/None//g')
 
         needed_list=()
@@ -86,12 +94,10 @@ scan_target_repo() {
             installed_ver=$(awk -F': *' '/^Version/{print $2}' <<<"$dep_info")
 
             if [[ -z "$installed_name" ]]; then
-                # Not installed at all
                 needed_list+=("$target_name $target_ver")
                 continue
             fi
 
-            # If installed but version differs from target repo version
             if [[ "$installed_ver" != "$target_ver" ]]; then
                 needed_list+=("$target_name $target_ver($installed_ver)")
             fi
