@@ -51,67 +51,58 @@ compare_versions() {
     esac
 }
 
-# --- Temporary pacman config to force target Architecture ---
-sys_conf="/etc/pacman.conf"
-tmp_conf="$(mktemp)"
-trap 'rm -f "$tmp_conf"' EXIT
-
-{
-    echo "Include = $sys_conf"
-    echo "[options]"
-    echo "Architecture = $target_arch"
-} >"$tmp_conf"
-
 # --- Function: scan a single repository for packages and dependencies ---
 scan_target_repo() {
     local repo="$1"
 
-    # Get package list for this repo+arch once
+    # Cache package list for this repo (includes all arch)
     local repo_pkgs
-    repo_pkgs=$(pacman --config "$tmp_conf" -Sl "$repo" 2>/dev/null)
+    repo_pkgs=$(pacman -Sl "$repo" 2>/dev/null)
     [[ -z "$repo_pkgs" ]] && return 0
 
     echo "=== Repository: $repo (target arch: $target_arch) ==="
 
     for pkg in "${installed_pkgs[@]}"; do
-        if grep -q " $pkg " <<<"$repo_pkgs"; then
-            deps=$(pacman --config "$tmp_conf" -Si "$repo/$pkg" \
-                   | awk -F': ' '/^Depends On/{print $2}' \
-                   | sed 's/^<none>$//;s/^None$//')
+        grep -q " $pkg " <<<"$repo_pkgs" || continue
 
-            missing_deps=()
-            for dep in $deps; do
-                [[ -z "$dep" ]] && continue
+        pkg_info=$(pacman -Si "$repo/$pkg" 2>/dev/null) || continue
 
-                dep_pkg_name="${dep%%[<>=]*}"
-                installed_ver=$(pacman -Q "$dep_pkg_name" 2>/dev/null | awk '{print $2}')
+        # Filter by architecture: only target_arch or 'any'
+        pkg_arch=$(awk -F': *' '/^Architecture/{print $2}' <<<"$pkg_info")
+        [[ "$pkg_arch" == "$target_arch" || "$pkg_arch" == "any" ]] || continue
 
-                if [[ -z "$installed_ver" ]]; then
-                    missing_deps+=("$dep")
-                    continue
-                fi
+        deps=$(awk -F': *' '/^Depends On/{print $2}' <<<"$pkg_info" | sed 's/^<none>$//;s/^None$//')
 
-                if [[ "$dep" =~ (>=|<=|=|>|<)(.+) ]]; then
-                    op="${BASH_REMATCH[1]}"
-                    req_ver="${BASH_REMATCH[2]}"
-                    if ! compare_versions "$installed_ver" "$op" "$req_ver"; then
-                        missing_deps+=("$dep")
-                    fi
-                fi
-            done
+        missing_deps=()
+        for dep in $deps; do
+            [[ -z "$dep" ]] && continue
+            dep_pkg_name="${dep%%[<>=]*}"
+            installed_ver=$(pacman -Q "$dep_pkg_name" 2>/dev/null | awk '{print $2}')
 
-            if (( ${#missing_deps[@]} )); then
-                needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
-            else
-                needed=""
+            if [[ -z "$installed_ver" ]]; then
+                missing_deps+=("$dep")
+                continue
             fi
 
-            printf "%-30s %s\n" "$pkg" "$needed"
+            if [[ "$dep" =~ (>=|<=|=|>|<)(.+) ]]; then
+                op="${BASH_REMATCH[1]}"
+                req_ver="${BASH_REMATCH[2]}"
+                if ! compare_versions "$installed_ver" "$op" "$req_ver"; then
+                    missing_deps+=("$dep")
+                fi
+            fi
+        done
+
+        if (( ${#missing_deps[@]} )); then
+            needed="needed:$(IFS=,; echo "${missing_deps[*]}")"
+        else
+            needed=""
         fi
+        printf "%-30s %s\n" "$pkg" "$needed"
     done
 }
 
-# --- Iterate through all repos and scan each ---
+# --- Iterate through all repos ---
 mapfile -t repos < <(pacman-conf --repo-list)
 for repo in "${repos[@]}"; do
     scan_target_repo "$repo"
