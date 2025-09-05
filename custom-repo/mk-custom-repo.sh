@@ -72,7 +72,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     fi
 
     # Get the filename of the latest package version
-    filename=$(pacman -Sp --print-format "%f" "$repo_n_pkg" 2>/dev/null || true)
+    filename=$(pacman -Sp --print-format "%f" "$repo_n_pkg" 2>/dev/null)
     if [[ -z "$filename" ]]; then
         echo "Skipping: Package $pkg not found in repository $repo"
         continue
@@ -90,7 +90,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     fi
 
     # Download the package (and .sig if available) to cache
-    if ! pacman -Sw --noconfirm "$repo_pkg" &> /dev/null; then
+    if ! pacman -Sw --noconfirm "$repo_n_pkg" &> /dev/null; then
         echo "Skipping: Failed to download $repo_pkg"
         continue
     fi
