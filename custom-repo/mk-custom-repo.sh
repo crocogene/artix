@@ -35,7 +35,10 @@ if [ ! -f "$PKGS_FILE" ]; then
 fi
 
 # Protect form beeing run in system dirs
-if [[ "$CUSTOM_REPO" == "root" || "$CUSTOM_REPO" == "usr" ]]
+if [[ "$CUSTOM_REPO" == "root" || "$CUSTOM_REPO" == "usr" ]]; then
+    echo "Error: Don't run script from system directories"
+    exit 1
+fi
 
 new_files_added=0
 
